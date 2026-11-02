@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tableau de bord décisionnel du CIAT</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--brun:#4a2e1e;--sable:#c8956c;--fond:#f7f2ed;--carte:#fff;--txt:#2b1d14;--gris:#7a6a5f}
+*{box-sizing:border-box}
+body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:var(--fond);color:var(--txt)}
+header{background:var(--brun);color:#fff;padding:14px 20px}
+header h1{margin:0;font-size:20px}
+header p{margin:4px 0 0;font-size:12px;color:#e8d5c4}
+.alerte{background:#fff3cd;color:#5c4400;padding:8px 20px;font-size:13px;border-bottom:1px solid #e6d28a}
+main{padding:16px 20px;max-width:1300px;margin:auto}
+.filtres{display:flex;flex-wrap:wrap;gap:10px;background:var(--carte);padding:12px;border-radius:8px;margin-bottom:14px;align-items:end}
+.filtres label{font-size:12px;color:var(--gris);display:flex;flex-direction:column;gap:3px}
+select,input,button{font:inherit;padding:6px 8px;border:1px solid #d6c7ba;border-radius:6px;background:#fff}
+button{background:var(--brun);color:#fff;border:0;cursor:pointer}
+button.sec{background:var(--sable)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--carte);border-radius:8px;padding:12px;border-left:5px solid var(--sable)}
+.kpi b{display:block;font-size:24px;color:var(--brun)}
+.kpi span{font-size:12px;color:var(--gris)}
+.grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.carte{background:var(--carte);border-radius:8px;padding:12px}
+.carte h2{font-size:14px;margin:0 0 8px;color:var(--brun)}
+.carte canvas{max-height:260px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:5px 6px;border-bottom:1px solid #eee;text-align:left}
+th{color:var(--gris);font-weight:600}
+.synthese{background:var(--carte);border-radius:8px;padding:12px;margin-bottom:14px;font-size:14px;line-height:1.5}
+.assistant{margin-top:14px}
+#rep{margin-top:8px;padding:10px;background:#faf6f2;border-radius:6px;min-height:40px;font-size:14px;white-space:pre-wrap}
+.defs{font-size:12px;color:var(--gris);margin-top:14px;line-height:1.5}
+#iaFinal{font-size:14px;line-height:1.5}
+#iaFinal .tag{display:inline-block;font-size:11px;background:#eee3d8;color:var(--brun);padding:2px 6px;border-radius:4px;margin-top:4px}
+@media print{.filtres,.assistant,.actions,#iaCtrl,.iaCtrl,#iaTexte{display:none!important}body{background:#fff}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tableau de bord décisionnel du CIAT</h1>
+  <p>ISEP Amadou Trawaré · Centre d'Innovation, d'Application et de Transfert · Incubateur</p>
+</header>
+<div class="alerte">Données fictives générées pour la démonstration. Elles ne reflètent aucune activité réelle du CIAT. Remplacer par le jeu de données validé avant toute décision.</div>
+<main>
+  <section class="filtres">
+    <label>Du (mois)<input type="month" id="fDu" value="2024-01"></label>
+    <label>Au (mois)<input type="month" id="fAu" value="2026-10"></label>
+    <label>Cohorte<select id="fCoh"></select></label>
+    <label>Domaine<select id="fDom"></select></label>
+    <label>Statut<select id="fSta"></select></label>
+    <label>Genre du porteur<select id="fGen"></select></label>
+    <button class="sec" id="reset">Réinitialiser</button>
+  </section>
+
+  <div class="synthese" id="synthese"></div>
+
+  <section class="synthese" id="blocIA">
+    <b>Synthèse rédigée par IA, à valider par un humain</b>
+    <div id="iaCtrl" style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button id="genIA">Générer la synthèse par IA</button>
+      <span id="iaEtat" style="font-size:12px;color:var(--gris)">L'IA reçoit uniquement les totaux affichés, jamais les dossiers individuels.</span>
+    </div>
+    <textarea id="iaTexte" rows="6" style="width:100%;display:none" aria-label="Texte proposé, modifiable"></textarea>
+    <div id="iaBtns" style="display:none;gap:8px;margin-top:8px" class="iaCtrl">
+      <button id="iaValider">Valider ce texte</button>
+      <button class="sec" id="iaRejeter">Rejeter</button>
+    </div>
+    <div id="iaFinal" style="margin-top:8px"></div>
+    <div id="iaLog" class="iaCtrl" style="margin-top:8px;display:none"><button class="sec" id="exLog">Télécharger le journal de validation (JSON)</button></div>
+  </section>
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grille">
+    <div class="carte"><h2>Entonnoir par statut</h2><canvas id="cStatut"></canvas></div>
+    <div class="carte"><h2>Répartition par domaine</h2><canvas id="cDomaine"></canvas></div>
+    <div class="carte"><h2>Comparaison entre cohortes</h2><canvas id="cCohorte"></canvas></div>
+    <div class="carte"><h2>Répartition par genre</h2><canvas id="cGenre"></canvas></div>
+    <div class="carte"><h2>Idées reçues par mois</h2><canvas id="cMois"></canvas></div>
+    <div class="carte"><h2>Financement obtenu par domaine (FCFA)</h2><canvas id="cFin"></canvas></div>
+  </section>
+
+  <section class="carte" style="margin-top:14px">
+    <h2>Projets en retard (top 10)</h2>
+    <table id="tRetard"></table>
+  </section>
+
+  <section class="carte assistant">
+    <h2>Interroger les données en langage naturel</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="q" style="flex:1;min-width:220px" placeholder="Ex : combien de projets en énergie en 2025 ?">
+      <button id="ask">Demander</button>
+    </div>
+    <div id="rep">Exemples : « combien de prototypes en 2026 », « financement total agriculture », « part des femmes », « combien de projets en retard ».</div>
+    <p class="defs" style="margin:6px 0 0">Version actuelle : analyse par mots-clés sur les données filtrées globales. Une version avec modèle de langage (API) est prévue en évolution.</p>
+  </section>
+
+  <section class="actions" style="margin:14px 0;display:flex;gap:8px;flex-wrap:wrap">
+    <button id="exCsv">Exporter en CSV (ouvrable dans Excel)</button>
+    <button id="exPdf">Exporter en PDF (impression)</button>
+    <button id="exImg">Exporter les graphiques en images</button>
+  </section>
+
+  <section class="defs">
+    <b>Définitions des indicateurs.</b>
+    Idées reçues = tous les dossiers filtrés. Sélectionnés = statuts Sélectionné, Prototype et Post-incubation. Prototypes = statuts Prototype et Post-incubation. Taux de sélection = Sélectionnés / Idées reçues. Retard = nombre de jours de dépassement du dernier jalon prévu (0 = à l'heure). Financement = montants obtenus en FCFA.
+  </section>
+</main>
+
+<script>
+// ---------- Données fictives (générateur à graine fixe, reproductible) ----------
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd=mulberry32(2026);
+const DOMAINES=["TIC, numérique et IA","Mécanique et maintenance","Agriculture et environnement","Énergie","Pharmaceutique et biomédical","Éducation et insertion","Services aux collectivités"];
+const STATUTS=["Idée reçue","Rejeté","Sélectionné","Prototype","Post-incubation"];
+const DATA=[];
+for(let i=1;i<=90;i++){
+  const an=2024+Math.floor(rnd()*3);
+  const maxM=an===2026?10:12;
+  const m=1+Math.floor(rnd()*maxM);
+  const r=rnd();
+  const statut=r<.22?"Idée reçue":r<.40?"Rejeté":r<.62?"Sélectionné":r<.85?"Prototype":"Post-incubation";
+  const avanc=statut==="Idée reçue"||statut==="Rejeté"?0:Math.round(10+rnd()*90);
+  const retard=(statut==="Sélectionné"||statut==="Prototype")&&rnd()<.45?Math.round(5+rnd()*70):0;
+  const part=statut!=="Idée reçue"&&statut!=="Rejeté"&&rnd()<.4;
+  const fin=(statut==="Prototype"||statut==="Post-incubation")&&rnd()<.5?Math.round((200+rnd()*4800))*1000:0;
+  DATA.push({id:"P-"+String(i).padStart(3,"0"),mois:an+"-"+String(m).padStart(2,"0"),cohorte:String(an),
+    domaine:DOMAINES[Math.floor(rnd()*DOMAINES.length)],statut,genre:rnd()<.42?"Femme":"Homme",
+    avancement:avanc,retard,partenariat:part,financement:fin});
+}
+
+// ---------- Filtres ----------
+const $=id=>document.getElementById(id);
+function remplir(sel,vals,tout){sel.innerHTML="<option value=''>"+tout+"</option>"+vals.map(v=>`<option>${v}</option>`).join("")}
+remplir($("fCoh"),["2024","2025","2026"],"Toutes");
+remplir($("fDom"),DOMAINES,"Tous");
+remplir($("fSta"),STATUTS,"Tous");
+remplir($("fGen"),["Femme","Homme"],"Tous");
+["fDu","fAu","fCoh","fDom","fSta","fGen"].forEach(id=>$(id).addEventListener("change",maj));
+$("reset").onclick=()=>{$("fDu").value="2024-01";$("fAu").value="2026-10";["fCoh","fDom","fSta","fGen"].forEach(i=>$(i).value="");maj()};
+
+function filtrer(){
+  const du=$("fDu").value,au=$("fAu").value,c=$("fCoh").value,d=$("fDom").value,s=$("fSta").value,g=$("fGen").value;
+  return DATA.filter(p=>(!du||p.mois>=du)&&(!au||p.mois<=au)&&(!c||p.cohorte===c)&&(!d||p.domaine===d)&&(!s||p.statut===s)&&(!g||p.genre===g));
+}
+const estSel=p=>["Sélectionné","Prototype","Post-incubation"].includes(p.statut);
+const estProto=p=>["Prototype","Post-incubation"].includes(p.statut);
+const fcfa=n=>new Intl.NumberFormat("fr-FR").format(n)+" FCFA";
+const pct=(a,b)=>b?Math.round(100*a/b):0;
+
+// ---------- Graphiques ----------
+const COULEURS=["#4a2e1e","#c8956c","#8a5a3b","#e0b894","#6b4a35","#a67c5b","#d9c3ae"];
+const charts={};
+function graphe(id,type,labels,datasets,opts={}){
+  if(charts[id]){charts[id].data.labels=labels;charts[id].data.datasets=datasets;charts[id].update();return}
+  charts[id]=new Chart($(id),{type,data:{labels,datasets},options:Object.assign({responsive:true,plugins:{legend:{display:datasets.length>1||type==="doughnut",position:"bottom"}}},opts)});
+}
+function compte(arr,cle,ordre){const m={};ordre.forEach(o=>m[o]=0);arr.forEach(p=>m[p[cle]]=(m[p[cle]]||0)+1);return m}
+
+function maj(){
+  const L=filtrer();
+  const sel=L.filter(estSel).length,proto=L.filter(estProto).length;
+  const retard=L.filter(p=>p.retard>0),part=L.filter(p=>p.partenariat).length;
+  const fin=L.reduce((s,p)=>s+p.financement,0);
+  const actifs=L.filter(p=>estSel(p)&&p.statut!=="Post-incubation");
+  const avMoy=actifs.length?Math.round(actifs.reduce((s,p)=>s+p.avancement,0)/actifs.length):0;
+  const f=L.filter(p=>p.genre==="Femme").length;
+
+  $("kpis").innerHTML=[
+    [L.length,"Idées reçues"],[sel,"Projets sélectionnés"],[pct(sel,L.length)+" %","Taux de sélection"],
+    [proto,"Prototypes"],[avMoy+" %","Avancement moyen (projets actifs)"],[retard.length,"Projets en retard"],
+    [part,"Partenariats"],[fcfa(fin),"Financement obtenu"],[pct(f,L.length)+" %","Part de femmes porteuses"]
+  ].map(k=>`<div class="kpi"><b>${k[0]}</b><span>${k[1]}</span></div>`).join("");
+
+  const domTop=Object.entries(compte(L,"domaine",DOMAINES)).sort((a,b)=>b[1]-a[1])[0];
+  $("synthese").innerHTML=L.length?
+    `<b>Fiche de synthèse.</b> Sur la sélection courante, ${L.length} idées ont été reçues et ${sel} ont été retenues (${pct(sel,L.length)} %). Le domaine le plus représenté est « ${domTop[0]} » avec ${domTop[1]} dossiers. ${retard.length} projets accusent un retard, avec une moyenne de ${retard.length?Math.round(retard.reduce((s,p)=>s+p.retard,0)/retard.length):0} jours. Les femmes portent ${pct(f,L.length)} % des dossiers.`
+    :"Aucun dossier ne correspond aux filtres choisis.";
+
+  const st=compte(L,"statut",STATUTS);
+  graphe("cStatut","bar",STATUTS,[{label:"Projets",data:STATUTS.map(s=>st[s]),backgroundColor:COULEURS[0]}],{indexAxis:"y"});
+  const dm=compte(L,"domaine",DOMAINES);
+  graphe("cDomaine","doughnut",DOMAINES,[{data:DOMAINES.map(d=>dm[d]),backgroundColor:COULEURS}]);
+  const coh=["2024","2025","2026"];
+  graphe("cCohorte","bar",coh,[
+    {label:"Reçues",data:coh.map(c=>L.filter(p=>p.cohorte===c).length),backgroundColor:COULEURS[3]},
+    {label:"Sélectionnés",data:coh.map(c=>L.filter(p=>p.cohorte===c&&estSel(p)).length),backgroundColor:COULEURS[1]},
+    {label:"Prototypes",data:coh.map(c=>L.filter(p=>p.cohorte===c&&estProto(p)).length),backgroundColor:COULEURS[0]}]);
+  const gn=compte(L,"genre",["Femme","Homme"]);
+  graphe("cGenre","doughnut",["Femme","Homme"],[{data:[gn.Femme,gn.Homme],backgroundColor:[COULEURS[1],COULEURS[0]]}]);
+  const mois=[...new Set(DATA.map(p=>p.mois))].sort();
+  const pm=compte(L,"mois",mois);
+  graphe("cMois","line",mois,[{label:"Idées reçues",data:mois.map(m=>pm[m]),borderColor:COULEURS[0],backgroundColor:COULEURS[1],tension:.25}]);
+  graphe("cFin","bar",DOMAINES,[{label:"FCFA",data:DOMAINES.map(d=>L.filter(p=>p.domaine===d).reduce((s,p)=>s+p.financement,0)),backgroundColor:COULEURS[1]}]);
+
+  const top=[...retard].sort((a,b)=>b.retard-a.retard).slice(0,10);
+  $("tRetard").innerHTML="<tr><th>ID</th><th>Domaine</th><th>Cohorte</th><th>Statut</th><th>Avancement</th><th>Retard (j)</th></tr>"+
+    (top.length?top.map(p=>`<tr><td>${p.id}</td><td>${p.domaine}</td><td>${p.cohorte}</td><td>${p.statut}</td><td>${p.avancement} %</td><td>${p.retard}</td></tr>`).join(""):"<tr><td colspan=6>Aucun retard.</td></tr>");
+}
+
+// ---------- Assistant en langage naturel (mots-clés) ----------
+function norm(s){return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}
+$("ask").onclick=()=>{
+  const q=norm($("q").value);let L=filtrer();const notes=[];
+  const an=q.match(/20(24|25|26)/);if(an){L=L.filter(p=>p.cohorte===an[0]);notes.push("cohorte "+an[0])}
+  const mots={tic:0,numerique:0,"ia":0,mecan:1,agri:2,environ:2,energ:3,pharma:4,biomed:4,educ:5,formation:5,collectiv:6};
+  for(const k in mots){if(q.includes(k)){L=L.filter(p=>p.domaine===DOMAINES[mots[k]]);notes.push(DOMAINES[mots[k]]);break}}
+  let r;
+  if(q.includes("financ")) r="Financement total : "+fcfa(L.reduce((s,p)=>s+p.financement,0));
+  else if(q.includes("retard")) r="Projets en retard : "+L.filter(p=>p.retard>0).length;
+  else if(q.includes("femme")) r="Part de femmes porteuses : "+pct(L.filter(p=>p.genre==="Femme").length,L.length)+" % ("+L.filter(p=>p.genre==="Femme").length+" sur "+L.length+")";
+  else if(q.includes("homme")) r="Part d'hommes porteurs : "+pct(L.filter(p=>p.genre==="Homme").length,L.length)+" %";
+  else if(q.includes("prototype")) r="Prototypes : "+L.filter(estProto).length;
+  else if(q.includes("selection")) r="Projets sélectionnés : "+L.filter(estSel).length+" ("+pct(L.filter(estSel).length,L.length)+" %)";
+  else if(q.includes("partenar")) r="Partenariats : "+L.filter(p=>p.partenariat).length;
+  else if(q.includes("combien")||q.includes("projet")||q.includes("idee")) r="Dossiers : "+L.length;
+  else r="Je ne sais pas répondre à cette question avec les données disponibles. Essaie : combien, financement, retard, femmes, prototypes, sélectionnés, partenariats, avec un domaine ou une année.";
+  $("rep").textContent=r+(notes.length?"\nFiltres appliqués à la question : "+notes.join(", ")+" (en plus des filtres de la page).":"");
+};
+
+// ---------- Synthèse par IA avec validation humaine ----------
+const JOURNAL=[];
+let propositionIA={texte:"",source:""};
+
+function statsAgregees(){
+  const L=filtrer();
+  const sel=L.filter(estSel).length,proto=L.filter(estProto).length;
+  const ret=L.filter(p=>p.retard>0);
+  const actifs=L.filter(p=>estSel(p)&&p.statut!=="Post-incubation");
+  const dm=Object.entries(compte(L,"domaine",DOMAINES)).sort((a,b)=>b[1]-a[1])[0];
+  return {
+    idees:L.length, selectionnes:sel, tauxSelection:pct(sel,L.length), prototypes:proto,
+    avancementMoyen:actifs.length?Math.round(actifs.reduce((s,p)=>s+p.avancement,0)/actifs.length):0,
+    enRetard:ret.length, retardMoyenJours:ret.length?Math.round(ret.reduce((s,p)=>s+p.retard,0)/ret.length):0,
+    partenariats:L.filter(p=>p.partenariat).length, financementFCFA:L.reduce((s,p)=>s+p.financement,0),
+    partFemmes:pct(L.filter(p=>p.genre==="Femme").length,L.length),
+    domainePrincipal:dm?dm[0]:"", dossiersDomainePrincipal:dm?dm[1]:0
+  };
+}
+function filtresActifs(){
+  return {du:$("fDu").value,au:$("fAu").value,cohorte:$("fCoh").value||"toutes",domaine:$("fDom").value||"tous",
+    statut:$("fSta").value||"tous",genre:$("fGen").value||"tous"};
+}
+$("genIA").onclick=async()=>{
+  const stats=statsAgregees();
+  if(!stats.idees){$("iaEtat").textContent="Aucun dossier : rien à synthétiser.";return}
+  $("genIA").disabled=true;$("iaEtat").textContent="Génération en cours…";
+  $("iaFinal").innerHTML="";
+  try{
+    const r=await fetch("/.netlify/functions/synthese",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({stats,filtres:filtresActifs()})});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const j=await r.json();
+    if(!j.texte) throw new Error("réponse vide");
+    propositionIA={texte:j.texte,source:"IA ("+(j.modele||"modèle inconnu")+")"};
+    $("iaEtat").textContent="Proposition de l'IA. Vérifiez chaque chiffre avec les indicateurs, corrigez si besoin, puis validez.";
+  }catch(e){
+    propositionIA={texte:$("synthese").textContent.replace(/^Fiche de synthèse\.\s*/,""),source:"texte automatique (IA indisponible : "+e.message+")"};
+    $("iaEtat").textContent="IA indisponible, texte automatique proposé à la place ("+e.message+").";
+  }
+  $("iaTexte").value=propositionIA.texte;
+  $("iaTexte").style.display="block";$("iaBtns").style.display="flex";
+  $("genIA").disabled=false;
+};
+$("iaValider").onclick=()=>{
+  const final=$("iaTexte").value.trim();if(!final)return;
+  const entree={date:new Date().toISOString(),source:propositionIA.source,textePropose:propositionIA.texte,
+    texteValide:final,modifieParHumain:final!==propositionIA.texte,filtres:filtresActifs(),stats:statsAgregees()};
+  JOURNAL.push(entree);
+  $("iaFinal").innerHTML="<b>Synthèse validée.</b><br>"+final.replace(/</g,"&lt;").replace(/\n/g,"<br>")+
+    `<br><span class="tag">Source : ${entree.source.replace(/</g,"&lt;")} · ${entree.modifieParHumain?"corrigée":"non modifiée"} · validée le ${new Date().toLocaleString("fr-FR")}</span>`;
+  $("iaTexte").style.display="none";$("iaBtns").style.display="none";$("iaLog").style.display="block";
+  $("iaEtat").textContent="Synthèse validée et enregistrée dans le journal.";
+};
+$("iaRejeter").onclick=()=>{
+  JOURNAL.push({date:new Date().toISOString(),source:propositionIA.source,textePropose:propositionIA.texte,rejete:true,filtres:filtresActifs()});
+  $("iaTexte").style.display="none";$("iaBtns").style.display="none";$("iaLog").style.display="block";
+  $("iaEtat").textContent="Proposition rejetée (consignée dans le journal).";
+};
+$("exLog").onclick=()=>{
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(JOURNAL,null,2)],{type:"application/json"}));
+  a.download="journal_validation_ia.json";a.click();
+};
+
+// ---------- Exports ----------
+$("exCsv").onclick=()=>{
+  const L=filtrer();const cols=Object.keys(DATA[0]);
+  const csv="\ufeff"+cols.join(";")+"\n"+L.map(p=>cols.map(c=>p[c]).join(";")).join("\n");
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download="ciat_export.csv";a.click();
+};
+$("exPdf").onclick=()=>window.print();
+$("exImg").onclick=()=>{Object.keys(charts).forEach(id=>{const a=document.createElement("a");a.href=charts[id].toBase64Image();a.download=id+".png";a.click()})};
+maj();
+</script>
+</body>
+</html>
